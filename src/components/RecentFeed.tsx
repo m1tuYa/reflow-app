@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { PostDTO } from "@/lib/types";
+import { LinkedText } from "./LinkedText";
 
 const STATUS_LABEL: Record<PostDTO["status"], string> = {
   record: "記録",
@@ -72,7 +73,7 @@ function Row({ post, onChanged }: { post: PostDTO; onChanged: () => void }) {
           </div>
         </div>
       ) : (
-        <p className="whitespace-pre-wrap">{post.body}</p>
+        <LinkedText text={post.body} className="whitespace-pre-wrap" />
       )}
     </li>
   );

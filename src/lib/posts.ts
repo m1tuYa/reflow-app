@@ -1,4 +1,4 @@
-import { getDb, Post } from "./db";
+import { getDb, Post, Routine } from "./db";
 import { parsePromiseDate, parseEstimateMinutes } from "./parse";
 
 const INITIAL_RECALL_INTERVAL_DAYS = 2;
@@ -128,12 +128,48 @@ export function listOverduePromises(dateIso: string): Post[] {
 }
 
 export function setPromiseDate(id: number, dateIso: string | null): Post | undefined {
-  getDb()
-    .prepare(
-      "UPDATE posts SET promise_date = ?, date_undetermined = 0, updated_at = ? WHERE id = ?"
-    )
-    .run(dateIso, nowIso(), id);
+  const db = getDb();
+  db.prepare(
+    "UPDATE posts SET promise_date = ?, date_undetermined = 0, updated_at = ? WHERE id = ?"
+  ).run(dateIso, nowIso(), id);
+  if (dateIso === null) {
+    // 「いつか」になった → 間隔を空けて「まだやりたい?」と問う
+    const post = getPost(id);
+    const interval = post?.someday_interval_days ?? 14;
+    db.prepare("UPDATE posts SET someday_next_ask = ? WHERE id = ?").run(addDaysIso(interval), id);
+  } else {
+    db.prepare("UPDATE posts SET someday_next_ask = NULL WHERE id = ?").run(id);
+  }
   return getPost(id);
+}
+
+// 「まだやりたい?」への答え
+export function somedayAnswer(
+  id: number,
+  decision: "keep" | "cancel"
+): Post | undefined {
+  const db = getDb();
+  const post = getPost(id);
+  if (!post) return;
+  if (decision === "cancel") {
+    db.prepare("UPDATE posts SET status = 'released', updated_at = ? WHERE id = ?").run(nowIso(), id);
+  } else {
+    // まだやりたい → 次に問うまでの間隔を伸ばす
+    const next = post.someday_interval_days * 2;
+    db.prepare(
+      "UPDATE posts SET someday_interval_days = ?, someday_next_ask = ?, updated_at = ? WHERE id = ?"
+    ).run(next, addDaysIso(next), nowIso(), id);
+  }
+  return getPost(id);
+}
+
+export function listDueSomeday(): Post[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM posts WHERE status='promise' AND promise_date IS NULL
+       AND someday_next_ask IS NOT NULL AND someday_next_ask <= ? ORDER BY someday_next_ask ASC`
+    )
+    .all(nowIso()) as Post[];
 }
 
 export function reorderToday(orderedIds: number[]): void {
@@ -219,6 +255,100 @@ export function allPosts(): Post[] {
   return getDb().prepare("SELECT * FROM posts ORDER BY created_at ASC").all() as Post[];
 }
 
+// 書き出したJSONから全投稿を復元する(既存は全消去して置き換える)。#48の対
+export function importPosts(posts: Partial<Post>[]): number {
+  const db = getDb();
+  const columns = (db.prepare("PRAGMA table_info(posts)").all() as { name: string }[])
+    .map((c) => c.name)
+    .filter((n) => n !== "id");
+  const insert = db.prepare(
+    `INSERT INTO posts (id, ${columns.join(",")}) VALUES (@id, ${columns
+      .map((c) => "@" + c)
+      .join(",")})`
+  );
+  const tx = db.transaction((rows: Partial<Post>[]) => {
+    db.exec("DELETE FROM posts");
+    for (const row of rows) {
+      const rec: Record<string, unknown> = { id: row.id ?? null };
+      for (const c of columns) rec[c] = (row as Record<string, unknown>)[c] ?? null;
+      insert.run(rec);
+    }
+  });
+  tx(posts);
+  return posts.length;
+}
+
+// ---- ルーチン (段階4 #27) ----
+
+export function listRoutines(): Routine[] {
+  return getDb()
+    .prepare("SELECT * FROM routines ORDER BY active DESC, next_run ASC")
+    .all() as Routine[];
+}
+
+export function createRoutine(input: {
+  body: string;
+  estimateMinutes: number | null;
+  intervalDays: number;
+  firstRun?: string;
+}): Routine {
+  const db = getDb();
+  const today = new Date().toISOString().slice(0, 10);
+  const info = db
+    .prepare(
+      "INSERT INTO routines (body, estimate_minutes, interval_days, next_run, active, created_at) VALUES (?,?,?,?,1,?)"
+    )
+    .run(
+      input.body,
+      input.estimateMinutes,
+      input.intervalDays,
+      input.firstRun || today,
+      new Date().toISOString()
+    );
+  return db
+    .prepare("SELECT * FROM routines WHERE id = ?")
+    .get(info.lastInsertRowid as number) as Routine;
+}
+
+export function deleteRoutine(id: number): void {
+  getDb().prepare("DELETE FROM routines WHERE id = ?").run(id);
+}
+
+// 期日が来たルーチンを、その日の約束として実体化する。再入しても二重に作らない。
+export function materializeRoutines(): void {
+  const db = getDb();
+  const today = new Date().toISOString().slice(0, 10);
+  const due = db
+    .prepare("SELECT * FROM routines WHERE active = 1 AND next_run <= ?")
+    .all(today) as Routine[];
+  const tx = db.transaction((routines: Routine[]) => {
+    for (const r of routines) {
+      // すでに今日ぶんを作っていないか(from_routine かつ同じ本文・同じ日付)
+      const exists = db
+        .prepare(
+          "SELECT 1 FROM posts WHERE from_routine = 1 AND body = ? AND promise_date = ? LIMIT 1"
+        )
+        .get(r.body, today);
+      if (!exists) {
+        const ts = new Date().toISOString();
+        db.prepare(
+          `INSERT INTO posts (body, created_at, updated_at, status, promise_date, estimate_minutes, from_routine, recall_interval_days)
+           VALUES (?, ?, ?, 'promise', ?, ?, 1, 2)`
+        ).run(r.body, ts, ts, today, r.estimate_minutes);
+      }
+      // 次回へ送る(今日以降になるまで進める)。UTCで一貫させる(ローカルTZで無限ループしない)
+      let next = r.next_run;
+      while (next <= today) {
+        const d = new Date(next + "T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() + r.interval_days);
+        next = d.toISOString().slice(0, 10);
+      }
+      db.prepare("UPDATE routines SET next_run = ? WHERE id = ?").run(next, r.id);
+    }
+  });
+  tx(due);
+}
+
 // ---- 時間軸 (いま線) ----
 
 export type TimelineItem = {
@@ -244,6 +374,7 @@ export function getTimeline(): {
   returning: Post[];
   endMinutes: number;
 } {
+  materializeRoutines();
   const db = getDb();
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
@@ -315,6 +446,30 @@ export function getTimeline(): {
     returning,
     endMinutes,
   };
+}
+
+// 指定した日の時間軸(読むだけ)。#44 日付で移動
+export function getDayView(dateStr: string): { date: string; items: TimelineItem[] } {
+  const db = getDb();
+  const recs = db
+    .prepare(`SELECT * FROM posts WHERE status='record' AND substr(created_at,1,10)=?`)
+    .all(dateStr) as Post[];
+  const proms = db
+    .prepare(`SELECT * FROM posts WHERE status IN ('promise','done') AND promise_date=?`)
+    .all(dateStr) as Post[];
+  const items: TimelineItem[] = [...recs, ...proms]
+    .map((p) => ({
+      post: p,
+      time:
+        p.status === "done"
+          ? p.ended_at || p.updated_at
+          : p.status === "record"
+            ? p.created_at
+            : `${p.promise_date}T00:00:00`,
+      actualMinutes: actualMinutes(p),
+    }))
+    .sort((a, b) => a.time.localeCompare(b.time));
+  return { date: dateStr, items };
 }
 
 // ---- 木構造 (段階2) ----
@@ -394,6 +549,22 @@ function buildNode(all: Post[], id: number): TreeNode {
   const children = childrenOf(all, id).map((c) => buildNode(all, c.id));
   const descendantCount = children.reduce((s, c) => s + 1 + c.descendantCount, 0);
   return { post, children, descendantCount };
+}
+
+// 投稿が属する木の根をたどる
+export function rootOf(id: number): number {
+  const db = getDb();
+  let cur = id;
+  const seen = new Set<number>();
+  for (;;) {
+    if (seen.has(cur)) return cur;
+    seen.add(cur);
+    const node = db.prepare("SELECT parent_id FROM posts WHERE id = ?").get(cur) as
+      | { parent_id: number | null }
+      | undefined;
+    if (!node || node.parent_id == null) return cur;
+    cur = node.parent_id;
+  }
 }
 
 export function getTree(rootId: number): TreeNode | null {

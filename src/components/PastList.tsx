@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { TimelineItemDTO } from "@/lib/types";
 import { hhmm, md } from "@/lib/format";
+import { LinkedText } from "./LinkedText";
 
 function Row({ item, onChanged }: { item: TimelineItemDTO; onChanged: () => void }) {
   const { post } = item;
@@ -66,7 +67,7 @@ function Row({ item, onChanged }: { item: TimelineItemDTO; onChanged: () => void
           </div>
         ) : (
           <>
-            <p className="whitespace-pre-wrap text-sm">{post.body}</p>
+            <LinkedText text={post.body} className="whitespace-pre-wrap text-sm" />
             {isDone && item.actualMinutes != null && (
               <p className="mt-0.5 text-xs text-neutral-500">
                 実績 {item.actualMinutes}分 / 見積 {post.estimate_minutes ?? "—"}分

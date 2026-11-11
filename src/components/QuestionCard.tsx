@@ -341,6 +341,26 @@ export function QuestionCard({
         </>
       )}
 
+      {question.type === "someday" && (
+        <>
+          <p className="text-sm font-medium">まだやりたい?</p>
+          <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+            {question.post.body}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Btn onClick={() => act({ type: "someday", id: question.post.id, decision: "do" })}>
+              やる(今日)
+            </Btn>
+            <Btn onClick={() => act({ type: "someday", id: question.post.id, decision: "keep" })}>
+              まだ
+            </Btn>
+            <Btn onClick={() => act({ type: "someday", id: question.post.id, decision: "cancel" })}>
+              やめる
+            </Btn>
+          </div>
+        </>
+      )}
+
       <div className="mt-2 flex items-center justify-between text-xs text-neutral-500">
         <span>あと{remaining}問</span>
         {question.type !== "morningOrder" && (

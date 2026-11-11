@@ -8,8 +8,14 @@ import { PastList } from "@/components/PastList";
 import { CarryoverPile } from "@/components/CarryoverPile";
 import { RecentFeed } from "@/components/RecentFeed";
 import { ContextPane } from "@/components/ContextPane";
-import { CurrentQuestionResponse, PostDTO, TimelineDTO } from "@/lib/types";
-import { hhmm, hhmmAfter, md } from "@/lib/format";
+import { ManagePanel } from "@/components/ManagePanel";
+import {
+  CurrentQuestionResponse,
+  PostDTO,
+  TimelineDTO,
+  TimelineItemDTO,
+} from "@/lib/types";
+import { dateStrOf, hhmm, hhmmAfter, md, shiftDate } from "@/lib/format";
 
 const EMPTY_TIMELINE: TimelineDTO = {
   now: "",
@@ -26,11 +32,14 @@ export default function Home() {
   const [question, setQuestion] = useState<CurrentQuestionResponse>({
     question: null,
     remaining: 0,
+    context: null,
   });
   const [timeline, setTimeline] = useState<TimelineDTO>(EMPTY_TIMELINE);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<PostDTO[] | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [viewDate, setViewDate] = useState<string | null>(null); // 別の日を見る(#44)
+  const [dayItems, setDayItems] = useState<TimelineItemDTO[]>([]);
 
   const refetch = useCallback(() => {
     fetch("/api/questions/current")
@@ -66,15 +75,60 @@ export default function Home() {
     if (!value.trim()) setSearchResults(null);
   }
 
+  const loadDay = useCallback((date: string) => {
+    fetch(`/api/day?date=${date}`)
+      .then((r) => r.json())
+      .then((d) => setDayItems(d.items ?? []));
+  }, []);
+
+  useEffect(() => {
+    if (viewDate) loadDay(viewDate);
+  }, [viewDate, loadDay, reloadKey]);
+
+  const todayStr = timeline.now ? dateStrOf(timeline.now) : "";
+  const shownDate = viewDate ?? todayStr;
+
   return (
     <div className="min-h-screen bg-neutral-100 px-4 py-5 dark:bg-neutral-950 dark:text-neutral-100">
       <div className="mx-auto max-w-6xl">
         {/* ヘッダー */}
         <header className="mb-5 flex items-center justify-between gap-4">
-          <div className="flex items-baseline gap-3">
+          <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold">往還</h1>
-            {timeline.now && (
-              <span className="text-sm text-neutral-500">{md(timeline.now)}</span>
+            {shownDate && (
+              <div className="flex items-center gap-1 text-sm text-neutral-500">
+                <button
+                  onClick={() => setViewDate(shiftDate(shownDate, -1))}
+                  className="rounded px-1 hover:bg-neutral-200 dark:hover:bg-neutral-800"
+                  title="前の日"
+                >
+                  ◀
+                </button>
+                <input
+                  type="date"
+                  value={shownDate}
+                  onChange={(e) =>
+                    setViewDate(e.target.value === todayStr ? null : e.target.value)
+                  }
+                  className="bg-transparent text-sm outline-none"
+                />
+                <button
+                  onClick={() =>
+                    setViewDate(
+                      shiftDate(shownDate, 1) > todayStr ? null : shiftDate(shownDate, 1)
+                    )
+                  }
+                  className="rounded px-1 hover:bg-neutral-200 dark:hover:bg-neutral-800"
+                  title="次の日"
+                >
+                  ▶
+                </button>
+                {viewDate && (
+                  <button onClick={() => setViewDate(null)} className="ml-1 underline">
+                    今日へ
+                  </button>
+                )}
+              </div>
             )}
           </div>
           <input
@@ -95,6 +149,17 @@ export default function Home() {
                   検索結果「{query}」
                 </h2>
                 <RecentFeed posts={searchResults} onChanged={load} />
+              </section>
+            ) : viewDate ? (
+              <section>
+                <h2 className="mb-2 text-sm font-semibold text-neutral-500">
+                  {md(viewDate)} の記録
+                </h2>
+                {dayItems.length === 0 ? (
+                  <p className="text-sm text-neutral-500">この日の記録はありません</p>
+                ) : (
+                  <PastList items={dayItems} onChanged={load} />
+                )}
               </section>
             ) : (
               <>
@@ -180,20 +245,27 @@ export default function Home() {
               </>
             )}
 
-            <div className="mt-1 flex justify-end gap-3 text-xs text-neutral-400">
-              <a href="/api/export?format=md" className="hover:underline">
-                書き出し(md)
-              </a>
-              <a href="/api/export?format=json" className="hover:underline">
-                書き出し(json)
-              </a>
+            <div className="mt-1 flex items-center justify-between">
+              <ManagePanel onChanged={load} />
+              <div className="flex gap-3 text-xs text-neutral-400">
+                <a href="/api/export?format=md" className="hover:underline">
+                  書き出し(md)
+                </a>
+                <a href="/api/export?format=json" className="hover:underline">
+                  書き出し(json)
+                </a>
+              </div>
             </div>
           </main>
 
           {/* 右: 文脈(森・木) */}
           <aside className="lg:sticky lg:top-5 lg:h-fit">
             <div className="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-              <ContextPane reloadKey={reloadKey} onChanged={load} />
+              <ContextPane
+                reloadKey={reloadKey}
+                context={question.context}
+                onChanged={load}
+              />
             </div>
           </aside>
         </div>

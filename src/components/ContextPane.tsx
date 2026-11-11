@@ -1,11 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ForestEntryDTO, TreeNodeDTO } from "@/lib/types";
+import { ForestEntryDTO, QuestionContext, TreeNodeDTO } from "@/lib/types";
+import { LinkedText } from "./LinkedText";
 
-export function ContextPane({ reloadKey, onChanged }: { reloadKey: number; onChanged: () => void }) {
+export function ContextPane({
+  reloadKey,
+  context,
+  onChanged,
+}: {
+  reloadKey: number;
+  context: QuestionContext;
+  onChanged: () => void;
+}) {
   const [forest, setForest] = useState<ForestEntryDTO[]>([]);
   const [openRoot, setOpenRoot] = useState<number | null>(null);
+  const [userFocus, setUserFocus] = useState<number | null>(null);
+  const [dismissedSig, setDismissedSig] = useState<string | null>(null);
 
   const loadForest = useCallback(() => {
     fetch("/api/forest")
@@ -17,17 +28,41 @@ export function ContextPane({ reloadKey, onChanged }: { reloadKey: number; onCha
     loadForest();
   }, [loadForest, reloadKey]);
 
-  if (openRoot != null) {
+  // 問いの文脈が来たら、その木を自動で開く(ユーザーが「森へ」で外せる)。
+  // state を同期せず、描画時に導出する。
+  const sig = context ? `${context.rootId}:${context.focusId}` : null;
+  const autoContext = context != null && dismissedSig !== sig;
+  const effectiveRoot = autoContext && context ? context.rootId : openRoot;
+  const effectiveFocus =
+    autoContext && context ? context.focusId : (userFocus ?? openRoot ?? 0);
+
+  if (effectiveRoot != null) {
     return (
-      <TreeView
-        rootId={openRoot}
-        reloadKey={reloadKey}
-        onBack={() => setOpenRoot(null)}
-        onChanged={() => {
-          loadForest();
-          onChanged();
-        }}
-      />
+      <>
+        {autoContext && (
+          <p className="mb-2 text-xs text-blue-700 dark:text-blue-400">
+            この問いに答えるための文脈
+          </p>
+        )}
+        <TreeView
+          key={`${effectiveRoot}:${autoContext ? sig : "user"}`}
+          rootId={effectiveRoot}
+          initialFocusId={effectiveFocus}
+          reloadKey={reloadKey}
+          onBack={() => {
+            if (autoContext && sig) {
+              setDismissedSig(sig);
+            } else {
+              setOpenRoot(null);
+              setUserFocus(null);
+            }
+          }}
+          onChanged={() => {
+            loadForest();
+            onChanged();
+          }}
+        />
+      </>
     );
   }
 
@@ -43,7 +78,10 @@ export function ContextPane({ reloadKey, onChanged }: { reloadKey: number; onCha
           {forest.map((e) => (
             <li key={e.root.id}>
               <button
-                onClick={() => setOpenRoot(e.root.id)}
+                onClick={() => {
+                  setOpenRoot(e.root.id);
+                  setUserFocus(e.root.id);
+                }}
                 className={`flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
                   e.stalled
                     ? "border-neutral-200 text-neutral-400 dark:border-neutral-800"
@@ -67,17 +105,19 @@ export function ContextPane({ reloadKey, onChanged }: { reloadKey: number; onCha
 // 局所的な2列表示: 見出し(親)+今の世代を全文、右に子の冒頭1行カード
 function TreeView({
   rootId,
+  initialFocusId,
   reloadKey,
   onBack,
   onChanged,
 }: {
   rootId: number;
+  initialFocusId: number;
   reloadKey: number;
   onBack: () => void;
   onChanged: () => void;
 }) {
   const [tree, setTree] = useState<TreeNodeDTO | null>(null);
-  const [focusId, setFocusId] = useState<number>(rootId);
+  const [focusId, setFocusId] = useState<number>(initialFocusId);
   const [dragId, setDragId] = useState<number | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nameInput, setNameInput] = useState("");
@@ -181,7 +221,7 @@ function TreeView({
         onDrop={() => dragId != null && dragId !== focus.post.id && reparent(dragId, focus.post.id)}
       >
         <span className="text-xs text-neutral-500">見出し {dateLabel(focus.post.created_at)}</span>
-        <p className="whitespace-pre-wrap">{focus.post.body}</p>
+        <LinkedText text={focus.post.body} className="whitespace-pre-wrap" />
       </div>
 
       {focus.children.length === 0 ? (
@@ -221,7 +261,7 @@ function TreeView({
                       <span className="ml-auto">子{child.children.length}</span>
                     )}
                   </div>
-                  <p className="whitespace-pre-wrap">{child.post.body}</p>
+                  <LinkedText text={child.post.body} className="whitespace-pre-wrap" />
                 </div>
                 {/* 右列: 子の冒頭1行カード(収まらない分は +n) */}
                 {child.children.length > 0 && (

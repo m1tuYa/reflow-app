@@ -16,3 +16,16 @@ export function md(isoOrDate: string): string {
 export function hhmmAfter(baseIso: string, minutes: number): string {
   return hhmm(new Date(new Date(baseIso).getTime() + minutes * 60000).toISOString());
 }
+
+// ISO文字列(またはYYYY-MM-DD)から YYYY-MM-DD
+export function dateStrOf(iso: string): string {
+  const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// YYYY-MM-DD を delta 日ずらす
+export function shiftDate(dateStr: string, delta: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + delta);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

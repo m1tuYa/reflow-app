@@ -39,7 +39,10 @@ function createDb(): Database.Database {
       is_closed INTEGER NOT NULL DEFAULT 0,
       stalled_asked_at TEXT,
       verify_at TEXT,
-      verified_at TEXT
+      verified_at TEXT,
+      from_routine INTEGER NOT NULL DEFAULT 0,
+      someday_interval_days REAL NOT NULL DEFAULT 14,
+      someday_next_ask TEXT
     );
 
     CREATE TABLE IF NOT EXISTS daily_state (
@@ -48,6 +51,16 @@ function createDb(): Database.Database {
       order_confirmed_at TEXT,
       recall_shown INTEGER NOT NULL DEFAULT 0,
       close_shown INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS routines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      body TEXT NOT NULL,
+      estimate_minutes INTEGER,
+      interval_days INTEGER NOT NULL,
+      next_run TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
@@ -65,6 +78,16 @@ function createDb(): Database.Database {
       INSERT INTO posts_fts(rowid, body) VALUES (new.id, new.body);
     END;
   `);
+  // 既存DB向けの後付けマイグレーション(新しい列は IF NOT EXISTS 的に足す)
+  const cols = (db.prepare("PRAGMA table_info(posts)").all() as { name: string }[]).map(
+    (c) => c.name
+  );
+  const add = (name: string, decl: string) => {
+    if (!cols.includes(name)) db.exec(`ALTER TABLE posts ADD COLUMN ${name} ${decl}`);
+  };
+  add("from_routine", "INTEGER NOT NULL DEFAULT 0");
+  add("someday_interval_days", "REAL NOT NULL DEFAULT 14");
+  add("someday_next_ask", "TEXT");
   return db;
 }
 
@@ -100,4 +123,17 @@ export type Post = {
   stalled_asked_at: string | null;
   verify_at: string | null;
   verified_at: string | null;
+  from_routine: number;
+  someday_interval_days: number;
+  someday_next_ask: string | null;
+};
+
+export type Routine = {
+  id: number;
+  body: string;
+  estimate_minutes: number | null;
+  interval_days: number;
+  next_run: string;
+  active: number;
+  created_at: string;
 };

@@ -42,7 +42,10 @@ db.exec(`
     is_closed INTEGER NOT NULL DEFAULT 0,
     stalled_asked_at TEXT,
     verify_at TEXT,
-    verified_at TEXT
+    verified_at TEXT,
+    from_routine INTEGER NOT NULL DEFAULT 0,
+    someday_interval_days REAL NOT NULL DEFAULT 14,
+    someday_next_ask TEXT
   );
   CREATE TABLE daily_state (
     date TEXT PRIMARY KEY,
@@ -50,6 +53,15 @@ db.exec(`
     order_confirmed_at TEXT,
     recall_shown INTEGER NOT NULL DEFAULT 0,
     close_shown INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE routines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    body TEXT NOT NULL,
+    estimate_minutes INTEGER,
+    interval_days INTEGER NOT NULL,
+    next_run TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
   );
   CREATE VIRTUAL TABLE posts_fts USING fts5(body, content='posts', content_rowid='id', tokenize='trigram');
   CREATE TRIGGER posts_ai AFTER INSERT ON posts BEGIN
@@ -85,6 +97,7 @@ const cols = [
   "next_recall_at", "recall_interval_days", "last_recalled_at", "snoozed_until",
   "tree_name", "needs_continuation", "continuation_rejected", "is_conclusion",
   "is_closed", "stalled_asked_at", "verify_at", "verified_at",
+  "from_routine", "someday_interval_days", "someday_next_ask",
 ];
 const stmt = db.prepare(
   `INSERT INTO posts (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`
@@ -98,6 +111,7 @@ function insert(o) {
     snoozed_until: null, tree_name: null, needs_continuation: 0,
     continuation_rejected: "[]", is_conclusion: 0, is_closed: 0,
     stalled_asked_at: null, verify_at: null, verified_at: null,
+    from_routine: 0, someday_interval_days: 14, someday_next_ask: null,
   };
   const r = { ...def, ...o };
   const created = r.created_at ?? daysAgo(1);
@@ -107,7 +121,8 @@ function insert(o) {
     r.date_undetermined, r.estimate_minutes, r.order_index, r.started_at, r.ended_at,
     r.next_recall_at, r.recall_interval_days, r.last_recalled_at, r.snoozed_until,
     r.tree_name, r.needs_continuation, r.continuation_rejected, r.is_conclusion,
-    r.is_closed, r.stalled_asked_at, r.verify_at, r.verified_at
+    r.is_closed, r.stalled_asked_at, r.verify_at, r.verified_at,
+    r.from_routine, r.someday_interval_days, r.someday_next_ask
   );
   return info.lastInsertRowid;
 }
@@ -211,8 +226,12 @@ insert({ body: "歯医者", status: "promise", promise_date: dateOnly(-1), estim
 // いつやる?(日付未検出 → いつやる?が出る)
 insert({ body: "確定申告の準備を始める", status: "promise", date_undetermined: 1, created_at: daysAgo(1) });
 
-// いつか(日付なしの約束)
+// いつか(日付なしの約束)。1つは「まだやりたい?」が出る頃合い
 insert({ body: "本棚を整理する", status: "promise", promise_date: null, date_undetermined: 0, created_at: daysAgo(5) });
+insert({
+  body: "ギターをまた弾けるようにする", status: "promise", promise_date: null, date_undetermined: 0,
+  created_at: daysAgo(30), someday_next_ask: daysAgo(1), // 確認日が来た
+});
 
 // ルーチン的な先の約束
 insert({ body: "週報を書く", status: "promise", promise_date: dateOnly(-2), estimate_minutes: 20, created_at: daysAgo(1) });
@@ -236,9 +255,18 @@ insert({
   needs_continuation: 1, created_at: daysAgo(0),
 });
 
-// 単独メモ
+// 単独メモ(URLリンクの確認も兼ねる)
 insert({ body: "引っ越しの見積もりは3社取ると相場がわかる、と聞いた。", created_at: daysAgo(7), updated_at: daysAgo(7) });
+insert({ body: "設計の参考に: https://claude.ai/code を見直す。", created_at: daysAgo(3), updated_at: daysAgo(3) });
+
+// ===== ルーチン =====
+const rstmt = db.prepare(
+  "INSERT INTO routines (body, estimate_minutes, interval_days, next_run, active, created_at) VALUES (?,?,?,?,?,?)"
+);
+// 今日発火するもの(今日の約束に出る)と、先の日付のもの
+rstmt.run("机まわりを片付ける", 10, 1, todayDate, 1, daysAgo(20));
+rstmt.run("週次の振り返りを書く", 30, 7, dateOnly(-1), 1, daysAgo(20));
 
 const count = db.prepare("SELECT COUNT(*) AS n FROM posts").get().n;
-console.log(`seeded ${count} posts into ${dbPath}`);
+console.log(`seeded ${count} posts + ${db.prepare("SELECT COUNT(*) AS n FROM routines").get().n} routines into ${dbPath}`);
 db.close();

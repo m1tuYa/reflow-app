@@ -1,11 +1,13 @@
 import { getDb, Post } from "./db";
 import {
   continuationCandidate,
+  listDueSomeday,
   listDueVerifications,
   listNeedsContinuation,
   listOverduePromises,
   listStalledTips,
   listTodayPromises,
+  rootOf,
   snooze,
 } from "./posts";
 
@@ -42,7 +44,8 @@ export type Question =
   | { type: "morningOrder"; posts: Post[] }
   | { type: "verify"; post: Post } // あの決めたことは効いた?
   | { type: "stalled"; post: Post } // この考え、どうなった?
-  | { type: "recall"; post: Post };
+  | { type: "recall"; post: Post }
+  | { type: "someday"; post: Post }; // まだやりたい?
 
 // 優先順位(設計書):
 //  書いた直後(続き?/いつやる?) > 約束に関わる持ち越し > 確かめる日 > 止まった枝 > 過去の戻り
@@ -100,12 +103,46 @@ export function buildQueue(): Question[] {
   const recallRoom = Math.max(0, DAYTIME_RECALL_CAP - state.recall_shown);
   for (const p of dueRecall.slice(0, recallRoom)) queue.push({ type: "recall", post: p });
 
+  // いつか: まだやりたい?(最もおだやかなので最後)
+  for (const p of listDueSomeday().filter((p) => !isSnoozed(p))) {
+    queue.push({ type: "someday", post: p });
+  }
+
   return queue;
 }
 
-export function getCurrentQuestion(): { question: Question | null; remaining: number } {
+export type QuestionContext = { rootId: number; focusId: number } | null;
+
+// その問いに答えるために右へ出す文脈(木とその注目ノード)
+function contextFor(q: Question): QuestionContext {
+  switch (q.type) {
+    case "continuation":
+      return { rootId: q.candidate.id, focusId: q.candidate.id };
+    case "recall":
+    case "stalled":
+    case "verify": {
+      const root = rootOf(q.post.id);
+      // 根が投稿自身でなければ、その投稿の親を見出しにして周辺を見せる
+      const parent = q.post.parent_id ?? q.post.id;
+      return { rootId: root, focusId: root === q.post.id ? q.post.id : parent };
+    }
+    default:
+      return null; // when/carryover/morningOrder/someday は森のまま
+  }
+}
+
+export function getCurrentQuestion(): {
+  question: Question | null;
+  remaining: number;
+  context: QuestionContext;
+} {
   const queue = buildQueue();
-  return { question: queue[0] ?? null, remaining: Math.max(0, queue.length - 1) };
+  const question = queue[0] ?? null;
+  return {
+    question,
+    remaining: Math.max(0, queue.length - 1),
+    context: question ? contextFor(question) : null,
+  };
 }
 
 export function markCarryoverShown(): void {

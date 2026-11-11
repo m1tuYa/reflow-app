@@ -8,6 +8,7 @@ import {
   recallAnswer,
   resolveContinuation,
   setPromiseDate,
+  somedayAnswer,
   snooze,
 } from "@/lib/posts";
 import {
@@ -98,6 +99,17 @@ export async function POST(req: NextRequest) {
       }
       recallAnswer(id, action, body);
       markRecallShown();
+      return NextResponse.json({ ok: true });
+    }
+    case "someday": {
+      const { id, decision, date } = payload; // do(今日/日付) | keep | cancel
+      if (decision === "do") {
+        setPromiseDate(id, date || todayIso());
+      } else if (decision === "keep" || decision === "cancel") {
+        somedayAnswer(id, decision);
+      } else {
+        return NextResponse.json({ error: "invalid decision" }, { status: 400 });
+      }
       return NextResponse.json({ ok: true });
     }
     default:

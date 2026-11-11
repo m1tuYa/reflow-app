@@ -25,6 +25,19 @@ export type PostDTO = {
   stalled_asked_at: string | null;
   verify_at: string | null;
   verified_at: string | null;
+  from_routine: number;
+  someday_interval_days: number;
+  someday_next_ask: string | null;
+};
+
+export type RoutineDTO = {
+  id: number;
+  body: string;
+  estimate_minutes: number | null;
+  interval_days: number;
+  next_run: string;
+  active: number;
+  created_at: string;
 };
 
 export type Question =
@@ -34,11 +47,15 @@ export type Question =
   | { type: "morningOrder"; posts: PostDTO[] }
   | { type: "verify"; post: PostDTO }
   | { type: "stalled"; post: PostDTO }
-  | { type: "recall"; post: PostDTO };
+  | { type: "recall"; post: PostDTO }
+  | { type: "someday"; post: PostDTO };
+
+export type QuestionContext = { rootId: number; focusId: number } | null;
 
 export type CurrentQuestionResponse = {
   question: Question | null;
   remaining: number;
+  context: QuestionContext;
 };
 
 export type TreeNodeDTO = {
