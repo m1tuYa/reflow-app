@@ -24,6 +24,10 @@ export function QuestionCard({
   const [writeInput, setWriteInput] = useState("");
   const [showDate, setShowDate] = useState(false);
   const [showWrite, setShowWrite] = useState(false);
+  // 「どうなった?」書いた後の「やることはある?」段階
+  const [stalledStage, setStalledStage] = useState<"ask" | "followup">("ask");
+  const [taskInput, setTaskInput] = useState("");
+  const [taskDate, setTaskDate] = useState("");
 
   async function act(payload: Record<string, unknown>) {
     await answer(payload);
@@ -31,6 +35,9 @@ export function QuestionCard({
     setShowWrite(false);
     setDateInput("");
     setWriteInput("");
+    setStalledStage("ask");
+    setTaskInput("");
+    setTaskDate("");
     onAnswered();
   }
 
@@ -41,6 +48,28 @@ export function QuestionCard({
 
   return (
     <div className="rounded-lg border border-neutral-300 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-900">
+      {question.type === "continuation" && (
+        <>
+          <p className="text-sm font-medium">
+            これは「{question.candidate.tree_name || firstLine(question.candidate.body)}」の続き?
+          </p>
+          <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+            {question.post.body}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Btn onClick={() => act({ type: "continuation", id: question.post.id, decision: "yes" })}>
+              はい
+            </Btn>
+            <Btn onClick={() => act({ type: "continuation", id: question.post.id, decision: "no" })}>
+              違う
+            </Btn>
+            <Btn onClick={() => act({ type: "continuation", id: question.post.id, decision: "new" })}>
+              新しい考え
+            </Btn>
+          </div>
+        </>
+      )}
+
       {question.type === "when" && (
         <>
           <p className="text-sm font-medium">いつやる?</p>
@@ -183,6 +212,133 @@ export function QuestionCard({
         </>
       )}
 
+      {question.type === "verify" && (
+        <>
+          <p className="text-sm font-medium">あの決めたこと、効いた?</p>
+          <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+            {question.post.body}
+          </p>
+          <div className="mt-2 flex flex-col gap-2">
+            <textarea
+              className="w-full resize-none rounded border border-neutral-400 bg-transparent p-1 text-sm outline-none"
+              rows={2}
+              placeholder="結果を書く"
+              value={writeInput}
+              onChange={(e) => setWriteInput(e.target.value)}
+            />
+            <div>
+              <Btn
+                onClick={() =>
+                  writeInput.trim() &&
+                  act({ type: "verify", id: question.post.id, body: writeInput.trim() })
+                }
+              >
+                送る
+              </Btn>
+            </div>
+          </div>
+        </>
+      )}
+
+      {question.type === "stalled" && (
+        <>
+          {stalledStage === "ask" ? (
+            <>
+              <p className="text-sm font-medium">この考え、どうなった?</p>
+              <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+                {question.post.body}
+              </p>
+              {showWrite ? (
+                <div className="mt-2 flex flex-col gap-2">
+                  <textarea
+                    className="w-full resize-none rounded border border-neutral-400 bg-transparent p-1 text-sm outline-none"
+                    rows={2}
+                    placeholder="結論を書く"
+                    value={writeInput}
+                    onChange={(e) => setWriteInput(e.target.value)}
+                  />
+                  <div>
+                    <Btn
+                      onClick={() => writeInput.trim() && setStalledStage("followup")}
+                    >
+                      次へ
+                    </Btn>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 flex gap-2">
+                  <Btn onClick={() => setShowWrite(true)}>書く</Btn>
+                  <Btn
+                    onClick={() =>
+                      act({ type: "stalled", id: question.post.id, resolution: "release" })
+                    }
+                  >
+                    手放す
+                  </Btn>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium">やることはある?</p>
+              <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+                結論: {writeInput}
+              </p>
+              <div className="mt-2 flex flex-col gap-2">
+                <textarea
+                  className="w-full resize-none rounded border border-neutral-400 bg-transparent p-1 text-sm outline-none"
+                  rows={2}
+                  placeholder="やること(空なら「ない」)"
+                  value={taskInput}
+                  onChange={(e) => setTaskInput(e.target.value)}
+                />
+                {taskInput.trim() && (
+                  <input
+                    type="date"
+                    value={taskDate}
+                    onChange={(e) => setTaskDate(e.target.value)}
+                    className="w-40 rounded border border-neutral-400 bg-transparent px-1 text-sm outline-none"
+                  />
+                )}
+                <div className="flex gap-2">
+                  {taskInput.trim() ? (
+                    <Btn
+                      onClick={() =>
+                        act({
+                          type: "stalled",
+                          id: question.post.id,
+                          resolution: "write",
+                          body: writeInput.trim(),
+                          hasTask: true,
+                          taskBody: taskInput.trim(),
+                          taskDate: taskDate || null,
+                        })
+                      }
+                    >
+                      ある
+                    </Btn>
+                  ) : (
+                    <Btn
+                      onClick={() =>
+                        act({
+                          type: "stalled",
+                          id: question.post.id,
+                          resolution: "write",
+                          body: writeInput.trim(),
+                          hasTask: false,
+                        })
+                      }
+                    >
+                      ない
+                    </Btn>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
       <div className="mt-2 flex items-center justify-between text-xs text-neutral-500">
         <span>あと{remaining}問</span>
         {question.type !== "morningOrder" && (
@@ -193,6 +349,11 @@ export function QuestionCard({
       </div>
     </div>
   );
+}
+
+function firstLine(body: string): string {
+  const line = body.split("\n")[0].trim();
+  return line.length > 16 ? line.slice(0, 16) + "…" : line;
 }
 
 function Btn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {

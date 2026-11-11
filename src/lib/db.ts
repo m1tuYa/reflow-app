@@ -31,7 +31,15 @@ function createDb(): Database.Database {
       next_recall_at TEXT,
       recall_interval_days REAL NOT NULL DEFAULT 2,
       last_recalled_at TEXT,
-      snoozed_until TEXT
+      snoozed_until TEXT,
+      tree_name TEXT,
+      needs_continuation INTEGER NOT NULL DEFAULT 0,
+      continuation_rejected TEXT NOT NULL DEFAULT '[]',
+      is_conclusion INTEGER NOT NULL DEFAULT 0,
+      is_closed INTEGER NOT NULL DEFAULT 0,
+      stalled_asked_at TEXT,
+      verify_at TEXT,
+      verified_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS daily_state (
@@ -84,4 +92,12 @@ export type Post = {
   recall_interval_days: number;
   last_recalled_at: string | null;
   snoozed_until: string | null;
+  tree_name: string | null;
+  needs_continuation: number;
+  continuation_rejected: string;
+  is_conclusion: number;
+  is_closed: number;
+  stalled_asked_at: string | null;
+  verify_at: string | null;
+  verified_at: string | null;
 };

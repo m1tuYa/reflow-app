@@ -1,10 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ForestEntryDTO } from "@/lib/types";
 
 export function CaptureInput({ onCreated }: { onCreated: () => void }) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tips, setTips] = useState<ForestEntryDTO[]>([]);
+  const [treeRootId, setTreeRootId] = useState<number | null>(null);
+
+  const writing = body.trim().length > 0;
+
+  useEffect(() => {
+    if (!writing) return;
+    fetch("/api/forest")
+      .then((r) => r.json())
+      .then((d) => setTips((d.forest ?? []).slice(0, 3)));
+  }, [writing]);
 
   async function submit(intent: "record" | "promise") {
     if (!body.trim() || busy) return;
@@ -13,9 +25,10 @@ export function CaptureInput({ onCreated }: { onCreated: () => void }) {
       await fetch("/api/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, intent }),
+        body: JSON.stringify({ body, intent, treeRootId }),
       });
       setBody("");
+      setTreeRootId(null);
       onCreated();
     } finally {
       setBusy(false);
@@ -34,7 +47,35 @@ export function CaptureInput({ onCreated }: { onCreated: () => void }) {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit("record");
         }}
       />
-      {body.trim() && (
+      {writing && tips.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
+          <span className="text-neutral-500">つなぐ:</span>
+          <button
+            onClick={() => setTreeRootId(null)}
+            className={`rounded border px-2 py-0.5 ${
+              treeRootId === null
+                ? "border-neutral-800 bg-neutral-800 text-white dark:border-neutral-200 dark:bg-neutral-200 dark:text-neutral-900"
+                : "border-neutral-300 dark:border-neutral-700"
+            }`}
+          >
+            選ばない
+          </button>
+          {tips.map((t) => (
+            <button
+              key={t.root.id}
+              onClick={() => setTreeRootId(t.root.id)}
+              className={`max-w-[10rem] truncate rounded border px-2 py-0.5 ${
+                treeRootId === t.root.id
+                  ? "border-neutral-800 bg-neutral-800 text-white dark:border-neutral-200 dark:bg-neutral-200 dark:text-neutral-900"
+                  : "border-neutral-300 dark:border-neutral-700"
+              }`}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {writing && (
         <div className="mt-2 flex gap-2">
           <button
             type="button"

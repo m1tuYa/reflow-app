@@ -11,13 +11,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { body, intent } = await req.json();
+  const { body, intent, treeRootId } = await req.json();
   if (!body || typeof body !== "string" || !body.trim()) {
     return NextResponse.json({ error: "body is required" }, { status: 400 });
   }
   if (intent !== "record" && intent !== "promise") {
     return NextResponse.json({ error: "intent must be record or promise" }, { status: 400 });
   }
-  const post = createPost({ body: body.trim(), intent });
+  const post = createPost({
+    body: body.trim(),
+    intent,
+    treeRootId: typeof treeRootId === "number" ? treeRootId : null,
+  });
   return NextResponse.json(post, { status: 201 });
 }

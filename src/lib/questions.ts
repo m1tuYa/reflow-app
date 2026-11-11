@@ -1,8 +1,17 @@
 import { getDb, Post } from "./db";
-import { listOverduePromises, listTodayPromises, snooze } from "./posts";
+import {
+  continuationCandidate,
+  listDueVerifications,
+  listNeedsContinuation,
+  listOverduePromises,
+  listStalledTips,
+  listTodayPromises,
+  snooze,
+} from "./posts";
 
 const MORNING_CARRYOVER_CAP = 5;
 const DAYTIME_RECALL_CAP = 3;
+const CLOSE_CAP = 1; // 閉じる問い(どうなった?)の上限 1日1件
 
 type DailyState = {
   date: string;
@@ -27,19 +36,29 @@ function isSnoozed(post: Post): boolean {
 }
 
 export type Question =
+  | { type: "continuation"; post: Post; candidate: Post } // これは〇〇の続き?
   | { type: "when"; post: Post }
   | { type: "carryover"; post: Post }
   | { type: "morningOrder"; posts: Post[] }
+  | { type: "verify"; post: Post } // あの決めたことは効いた?
+  | { type: "stalled"; post: Post } // この考え、どうなった?
   | { type: "recall"; post: Post };
 
-// Priority per 設計書: 約束に関わる問い(when/carryover) > 確かめる日 > 止まった枝 > 過去の戻り
-// (確かめる日/止まった枝 is tree-dependent, deferred to a later stage)
+// 優先順位(設計書):
+//  書いた直後(続き?/いつやる?) > 約束に関わる持ち越し > 確かめる日 > 止まった枝 > 過去の戻り
 export function buildQueue(): Question[] {
   const db = getDb();
   const date = todayIso();
   const state = ensureDailyState(date);
   const queue: Question[] = [];
 
+  // 書いた直後: これは〇〇の続き?(つなげる木があるときだけ)
+  for (const p of listNeedsContinuation().filter((p) => !isSnoozed(p))) {
+    const cand = continuationCandidate(p);
+    if (cand) queue.push({ type: "continuation", post: p, candidate: cand });
+  }
+
+  // 書いた直後: いつやる?
   const undetermined = (
     db
       .prepare(`SELECT * FROM posts WHERE status='promise' AND date_undetermined=1`)
@@ -47,16 +66,30 @@ export function buildQueue(): Question[] {
   ).filter((p) => !isSnoozed(p));
   for (const p of undetermined) queue.push({ type: "when", post: p });
 
+  // 朝: 持ち越し判断
   const overdue = listOverduePromises(date).filter((p) => !isSnoozed(p));
   const carryoverRoom = Math.max(0, MORNING_CARRYOVER_CAP - state.carryover_shown);
   const shownOverdue = overdue.slice(0, carryoverRoom);
   for (const p of shownOverdue) queue.push({ type: "carryover", post: p });
 
+  // 朝: 順番確認
   const todays = listTodayPromises(date);
   if (!state.order_confirmed_at && todays.length > 0 && overdue.length <= shownOverdue.length) {
     queue.push({ type: "morningOrder", posts: todays });
   }
 
+  // 確かめる日: 効いた?
+  for (const p of listDueVerifications().filter((p) => !isSnoozed(p))) {
+    queue.push({ type: "verify", post: p });
+  }
+
+  // 止まった枝: どうなった?(1日1件)
+  if (state.close_shown < CLOSE_CAP) {
+    const stalled = listStalledTips().filter((p) => !isSnoozed(p));
+    if (stalled[0]) queue.push({ type: "stalled", post: stalled[0] });
+  }
+
+  // 過去の戻り: 今はどう思う?
   const dueRecall = (
     db
       .prepare(
@@ -96,6 +129,14 @@ export function markRecallShown(): void {
   ensureDailyState(date);
   getDb()
     .prepare(`UPDATE daily_state SET recall_shown = recall_shown + 1 WHERE date = ?`)
+    .run(date);
+}
+
+export function markCloseShown(): void {
+  const date = todayIso();
+  ensureDailyState(date);
+  getDb()
+    .prepare(`UPDATE daily_state SET close_shown = close_shown + 1 WHERE date = ?`)
     .run(date);
 }
 
