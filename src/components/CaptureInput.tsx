@@ -40,7 +40,7 @@ export function CaptureInput({ onCreated }: { onCreated: () => void }) {
       <textarea
         className="w-full resize-none bg-transparent text-sm outline-none"
         rows={3}
-        placeholder="書く(2〜3文まで。「明日」「金曜」「30分」などはそのまま読み取られます)"
+        placeholder="書く(線より上=記録、線より下=未来への約束。「明日」「金曜」「30分」はそのまま読み取られます)"
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={(e) => {

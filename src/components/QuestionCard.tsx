@@ -171,7 +171,9 @@ export function QuestionCard({
 
       {question.type === "recall" && (
         <>
-          <p className="text-sm font-medium">今はどう思う?</p>
+          <p className="text-xs text-blue-700 dark:text-blue-400">
+            {recallDate(question.post.created_at)}の自分から戻ってきた — 今はどう思う?
+          </p>
           <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
             {question.post.body}
           </p>
@@ -354,6 +356,11 @@ export function QuestionCard({
 function firstLine(body: string): string {
   const line = body.split("\n")[0].trim();
   return line.length > 16 ? line.slice(0, 16) + "…" : line;
+}
+
+function recallDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
 function Btn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {

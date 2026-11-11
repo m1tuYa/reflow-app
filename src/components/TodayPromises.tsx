@@ -17,13 +17,17 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { PostDTO } from "@/lib/types";
+import { hhmm } from "@/lib/format";
 
-function formatEndTime(minutesFromNow: number): string {
-  const d = new Date(Date.now() + minutesFromNow * 60000);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-function SortableRow({ post, onChanged }: { post: PostDTO; onChanged: () => void }) {
+function SortableRow({
+  post,
+  rangeLabel,
+  onChanged,
+}: {
+  post: PostDTO;
+  rangeLabel: string;
+  onChanged: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: post.id,
   });
@@ -46,46 +50,47 @@ function SortableRow({ post, onChanged }: { post: PostDTO; onChanged: () => void
     <li
       ref={setNodeRef}
       style={style}
-      className="flex items-center justify-between rounded border border-neutral-300 px-2 py-1 text-sm dark:border-neutral-700"
+      className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <span className="flex items-center gap-2">
-        <span
-          {...attributes}
-          {...listeners}
-          className="cursor-grab select-none text-neutral-400"
-          title="ドラッグで並び替え"
-        >
-          ⠿
-        </span>
-        <span className={post.status === "done" ? "text-neutral-400 line-through" : ""}>
-          {post.body}
-        </span>
-        {post.estimate_minutes && (
-          <span className="text-xs text-neutral-500">({post.estimate_minutes}分)</span>
-        )}
+      <span
+        {...attributes}
+        {...listeners}
+        className="cursor-grab select-none text-neutral-300"
+        title="ドラッグで並び替え"
+      >
+        ⠿
       </span>
-      {post.status !== "done" &&
-        (post.started_at ? (
-          <button
-            onClick={finish}
-            className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-white dark:bg-neutral-200 dark:text-neutral-900"
-          >
-            終える
-          </button>
-        ) : (
-          <button onClick={start} className="rounded border border-neutral-400 px-2 py-0.5 text-xs">
-            始める
-          </button>
-        ))}
+      <span className="w-24 shrink-0 text-xs tabular-nums text-neutral-500">{rangeLabel}</span>
+      <span className="min-w-0 flex-1 truncate">{post.body}</span>
+      {post.estimate_minutes != null && (
+        <span className="shrink-0 text-xs text-neutral-500">{post.estimate_minutes}分</span>
+      )}
+      {post.started_at ? (
+        <button
+          onClick={finish}
+          className="shrink-0 rounded bg-neutral-800 px-2 py-0.5 text-xs text-white dark:bg-neutral-200 dark:text-neutral-900"
+        >
+          終える
+        </button>
+      ) : (
+        <button
+          onClick={start}
+          className="shrink-0 rounded border border-neutral-400 px-2 py-0.5 text-xs"
+        >
+          始める
+        </button>
+      )}
     </li>
   );
 }
 
 export function TodayPromises({
   posts,
+  now,
   onChanged,
 }: {
   posts: PostDTO[];
+  now: string;
   onChanged: () => void;
 }) {
   const [ids, setIds] = useState(posts.map((p) => p.id));
@@ -95,9 +100,16 @@ export function TodayPromises({
   const ordered = ids.map((id) => byId.get(id)).filter((p): p is PostDTO => !!p);
   for (const p of posts) if (!ids.includes(p.id)) ordered.push(p);
 
-  const remainingMinutes = ordered
-    .filter((p) => p.status !== "done")
-    .reduce((sum, p) => sum + (p.estimate_minutes ?? 0), 0);
+  // 予測の時間帯: いまを起点に、見積もりを積み上げて各約束の帯を出す
+  let cursor = new Date(now).getTime();
+  const ranges = new Map<number, string>();
+  for (const p of ordered) {
+    const est = p.estimate_minutes ?? 0;
+    const startIso = new Date(cursor).toISOString();
+    const endIso = new Date(cursor + est * 60000).toISOString();
+    ranges.set(p.id, est > 0 ? `${hhmm(startIso)}–${hhmm(endIso)}` : "");
+    cursor += est * 60000;
+  }
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -114,27 +126,23 @@ export function TodayPromises({
   }
 
   if (posts.length === 0) {
-    return <p className="text-sm text-neutral-500">今日の約束はありません</p>;
+    return <p className="text-sm text-neutral-500">今日この後の約束はありません</p>;
   }
 
   return (
-    <div>
-      <p className="mb-2 text-xs text-neutral-500">
-        終了予定 {formatEndTime(remainingMinutes)} 頃(残り見積り{remainingMinutes}分)
-      </p>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={ordered.map((p) => p.id)} strategy={verticalListSortingStrategy}>
-          <ul className="flex flex-col gap-1">
-            {ordered.map((p) => (
-              <SortableRow key={p.id} post={p} onChanged={onChanged} />
-            ))}
-          </ul>
-        </SortableContext>
-      </DndContext>
-    </div>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={ordered.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+        <ul className="flex flex-col gap-1.5">
+          {ordered.map((p) => (
+            <SortableRow
+              key={p.id}
+              post={p}
+              rangeLabel={ranges.get(p.id) ?? ""}
+              onChanged={onChanged}
+            />
+          ))}
+        </ul>
+      </SortableContext>
+    </DndContext>
   );
 }

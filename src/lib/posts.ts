@@ -219,6 +219,104 @@ export function allPosts(): Post[] {
   return getDb().prepare("SELECT * FROM posts ORDER BY created_at ASC").all() as Post[];
 }
 
+// ---- 時間軸 (いま線) ----
+
+export type TimelineItem = {
+  post: Post;
+  time: string; // 並べ替えに使う実効時刻(ISO)
+  actualMinutes: number | null; // 約束の実績(分)
+};
+
+function actualMinutes(p: Post): number | null {
+  if (p.started_at && p.ended_at) {
+    return Math.round((new Date(p.ended_at).getTime() - new Date(p.started_at).getTime()) / 60000);
+  }
+  return null;
+}
+
+export function getTimeline(): {
+  now: string;
+  past: TimelineItem[];
+  overdue: Post[];
+  todayUpcoming: Post[];
+  tomorrow: Post[];
+  someday: Post[];
+  returning: Post[];
+  endMinutes: number;
+} {
+  const db = getDb();
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const tomorrowDate = new Date(now);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowStr = tomorrowDate.toISOString().slice(0, 10);
+
+  // 過去 — 記録: 記録と済みの約束、直近20件を時刻の昇順(新しいものが下=いま線に近い)
+  const pastRaw = db
+    .prepare(
+      `SELECT * FROM posts WHERE status IN ('record','done')
+       ORDER BY CASE WHEN status='done' THEN COALESCE(ended_at, updated_at) ELSE created_at END DESC
+       LIMIT 20`
+    )
+    .all() as Post[];
+  const past: TimelineItem[] = pastRaw
+    .map((p) => ({
+      post: p,
+      time: p.status === "done" ? p.ended_at || p.updated_at : p.created_at,
+      actualMinutes: actualMinutes(p),
+    }))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  const overdue = db
+    .prepare(
+      `SELECT * FROM posts WHERE status='promise' AND promise_date IS NOT NULL AND promise_date < ?
+       ORDER BY promise_date ASC`
+    )
+    .all(todayStr) as Post[];
+
+  const todayUpcoming = db
+    .prepare(
+      `SELECT * FROM posts WHERE status='promise' AND promise_date = ?
+       ORDER BY order_index IS NULL, order_index ASC, created_at ASC`
+    )
+    .all(todayStr) as Post[];
+
+  const tomorrow = db
+    .prepare(
+      `SELECT * FROM posts WHERE status='promise' AND promise_date = ? ORDER BY created_at ASC`
+    )
+    .all(tomorrowStr) as Post[];
+
+  // いつか: 日付のない約束
+  const someday = db
+    .prepare(
+      `SELECT * FROM posts WHERE status='promise' AND promise_date IS NULL AND date_undetermined = 0
+       ORDER BY created_at ASC`
+    )
+    .all() as Post[];
+
+  // システムが戻してくる過去(今はどう思う?の対象)
+  const returning = db
+    .prepare(
+      `SELECT * FROM posts WHERE status='record' AND next_recall_at IS NOT NULL AND next_recall_at <= ?
+       ORDER BY next_recall_at ASC LIMIT 5`
+    )
+    .all(now.toISOString()) as Post[];
+
+  const endMinutes = todayUpcoming.reduce((s, p) => s + (p.estimate_minutes ?? 0), 0);
+
+  return {
+    now: now.toISOString(),
+    past,
+    overdue,
+    todayUpcoming,
+    tomorrow,
+    someday,
+    returning,
+    endMinutes,
+  };
+}
+
 // ---- 木構造 (段階2) ----
 
 const STALL_DAYS = 21; // 枝が「止まった」とみなす期間

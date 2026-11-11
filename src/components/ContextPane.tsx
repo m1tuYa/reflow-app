@@ -120,12 +120,27 @@ function TreeView({
     onChanged();
   }
 
+  const generation = depthOf(tree, focusId) + 1; // 1始まり
+  const totalGen = maxDepth(tree) + 1;
+  const treeName = tree.post.tree_name || firstLine(tree.post.body);
+
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
-        <button onClick={onBack} className="text-xs text-neutral-500 underline">
-          ← 森へ
-        </button>
+      {/* パンくず + 世代表示 */}
+      <div className="mb-2 flex items-start justify-between gap-2 text-xs">
+        <div className="min-w-0">
+          <button onClick={onBack} className="text-neutral-500 hover:underline">
+            森
+          </button>
+          <span className="text-neutral-400"> › </span>
+          <span className="text-neutral-600 dark:text-neutral-300">{treeName}</span>
+        </div>
+        <div className="shrink-0 text-right text-neutral-500">
+          {generation}世代目を表示中・全{totalGen}世代
+        </div>
+      </div>
+
+      <div className="mb-2 flex items-center justify-between">
         {renaming ? (
           <span className="flex gap-1">
             <input
@@ -144,9 +159,9 @@ function TreeView({
               setNameInput(tree.post.tree_name ?? "");
               setRenaming(true);
             }}
-            className="text-xs text-neutral-500 underline"
+            className="text-xs text-neutral-500 hover:underline"
           >
-            名前
+            名前をつける
           </button>
         )}
       </div>
@@ -155,84 +170,117 @@ function TreeView({
       {parentOfFocus && (
         <button
           onClick={() => setFocusId(parentOfFocus.post.id)}
-          className="mb-1 text-xs text-neutral-500 underline"
+          className="mb-1 text-xs text-neutral-500 hover:underline"
         >
           ↑ {firstLine(parentOfFocus.post.body)}
         </button>
       )}
       <div
-        className="mb-2 rounded border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        className="mb-3 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         onDragOver={(e) => dragId != null && e.preventDefault()}
         onDrop={() => dragId != null && dragId !== focus.post.id && reparent(dragId, focus.post.id)}
       >
-        <span className="text-xs text-neutral-500">見出し</span>
+        <span className="text-xs text-neutral-500">見出し {dateLabel(focus.post.created_at)}</span>
         <p className="whitespace-pre-wrap">{focus.post.body}</p>
       </div>
 
-      {/* 今の世代 = focus の子。左=全文、右=その子(孫)の冒頭1行 */}
       {focus.children.length === 0 ? (
         <p className="text-xs text-neutral-500">この先はまだありません</p>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {focus.children.map((child) => (
-            <li key={child.post.id} className="flex gap-2">
-              <div
-                draggable
-                onDragStart={() => setDragId(child.post.id)}
-                onDragEnd={() => setDragId(null)}
-                onDragOver={(e) => dragId != null && e.preventDefault()}
-                onDrop={(e) => {
-                  e.stopPropagation();
-                  if (dragId != null && dragId !== child.post.id) reparent(dragId, child.post.id);
-                }}
-                className={`flex-1 cursor-grab rounded border px-3 py-2 text-sm dark:border-neutral-700 ${
-                  nodeTone(child)
-                }`}
-                onClick={() => child.children.length > 0 && setFocusId(child.post.id)}
-              >
-                <p className="whitespace-pre-wrap">{child.post.body}</p>
-                <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500">
-                  {child.post.is_conclusion === 1 && <span>結論</span>}
-                  {child.post.status === "promise" && <span>約束</span>}
-                  {child.post.status === "done" && <span>済み</span>}
-                  {child.descendantCount > 0 && (
-                    <button
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        setFocusId(child.post.id);
-                      }}
-                      className="underline"
-                    >
-                      ↓ {child.descendantCount}
-                    </button>
-                  )}
+        <>
+          {/* 列見出し */}
+          <div className="mb-1 flex gap-2 text-xs text-neutral-400">
+            <span className="flex-1">いまの世代 — 読む</span>
+            <span className="hidden w-40 shrink-0 sm:block">それぞれの子 — 眺める</span>
+          </div>
+          <ul className="flex flex-col gap-2">
+            {focus.children.map((child) => (
+              <li key={child.post.id} className="flex gap-2">
+                <div
+                  draggable
+                  onDragStart={() => setDragId(child.post.id)}
+                  onDragEnd={() => setDragId(null)}
+                  onDragOver={(e) => dragId != null && e.preventDefault()}
+                  onDrop={(e) => {
+                    e.stopPropagation();
+                    if (dragId != null && dragId !== child.post.id) reparent(dragId, child.post.id);
+                  }}
+                  className={`flex-1 cursor-grab rounded-lg border px-3 py-2 text-sm dark:border-neutral-700 ${nodeTone(
+                    child
+                  )}`}
+                  onClick={() => child.children.length > 0 && setFocusId(child.post.id)}
+                >
+                  <div className="mb-0.5 flex items-center gap-2 text-xs text-neutral-400">
+                    <span>{dateLabel(child.post.created_at)}</span>
+                    {child.post.is_conclusion === 1 && (
+                      <span className="text-emerald-600 dark:text-emerald-400">結論</span>
+                    )}
+                    {child.post.status === "promise" && <span>約束</span>}
+                    {child.post.status === "done" && <span>済み</span>}
+                    {child.children.length > 0 && (
+                      <span className="ml-auto">子{child.children.length}</span>
+                    )}
+                  </div>
+                  <p className="whitespace-pre-wrap">{child.post.body}</p>
                 </div>
-              </div>
-              {/* 右列: 孫の冒頭1行カード */}
-              {child.children.length > 0 && (
-                <div className="hidden w-40 shrink-0 flex-col gap-1 sm:flex">
-                  {child.children.slice(0, 4).map((gc) => (
-                    <button
-                      key={gc.post.id}
-                      onClick={() => setFocusId(child.post.id)}
-                      className="truncate rounded border border-neutral-200 px-2 py-1 text-left text-xs text-neutral-500 dark:border-neutral-800"
-                    >
-                      {firstLine(gc.post.body)}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+                {/* 右列: 子の冒頭1行カード(収まらない分は +n) */}
+                {child.children.length > 0 && (
+                  <div className="hidden w-40 shrink-0 flex-col gap-1 sm:flex">
+                    {child.children.slice(0, 3).map((gc) => (
+                      <button
+                        key={gc.post.id}
+                        onClick={() => setFocusId(child.post.id)}
+                        className="truncate rounded border border-neutral-200 px-2 py-1 text-left text-xs text-neutral-500 dark:border-neutral-800"
+                      >
+                        {firstLine(gc.post.body)}
+                      </button>
+                    ))}
+                    {child.children.length > 3 && (
+                      <button
+                        onClick={() => setFocusId(child.post.id)}
+                        className="rounded px-2 py-0.5 text-left text-xs text-neutral-400 hover:underline"
+                      >
+                        +{child.children.length - 3}件
+                      </button>
+                    )}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
-      {dragId != null && (
+
+      {dragId != null ? (
         <p className="mt-2 text-xs text-neutral-400">
           カードの上に落とすと「子(深める)」になります
+        </p>
+      ) : (
+        <p className="mt-3 border-t border-neutral-200 pt-2 text-xs leading-relaxed text-neutral-400 dark:border-neutral-800">
+          見出し = 親(押すと1つ上の世代へ)。右の子は冒頭1行だけ、押すと降りて全文を読む。
         </p>
       )}
     </div>
   );
+}
+
+function depthOf(root: TreeNodeDTO, id: number, depth = 0): number {
+  if (root.post.id === id) return depth;
+  for (const c of root.children) {
+    const d = depthOf(c, id, depth + 1);
+    if (d >= 0) return d;
+  }
+  return -1;
+}
+
+function maxDepth(n: TreeNodeDTO): number {
+  if (n.children.length === 0) return 0;
+  return 1 + Math.max(...n.children.map(maxDepth));
+}
+
+function dateLabel(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
 function nodeTone(n: TreeNodeDTO): string {

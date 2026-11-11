@@ -54,3 +54,20 @@ export type ForestEntryDTO = {
   stalled: boolean;
   lastActivity: string;
 };
+
+export type TimelineItemDTO = {
+  post: PostDTO;
+  time: string;
+  actualMinutes: number | null;
+};
+
+export type TimelineDTO = {
+  now: string;
+  past: TimelineItemDTO[];
+  overdue: PostDTO[];
+  todayUpcoming: PostDTO[];
+  tomorrow: PostDTO[];
+  someday: PostDTO[];
+  returning: PostDTO[];
+  endMinutes: number;
+};

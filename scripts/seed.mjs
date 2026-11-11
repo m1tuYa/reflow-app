@@ -73,6 +73,11 @@ const daysAgo = (n) => {
 };
 const dateOnly = (n) => daysAgo(n).slice(0, 10); // n日前(マイナスで未来)
 const todayDate = dateOnly(0);
+const minsAgo = (n) => {
+  const d = new Date(now);
+  d.setMinutes(d.getMinutes() - n);
+  return iso(d);
+};
 
 const cols = [
   "body", "created_at", "updated_at", "parent_id", "status", "promise_date",
@@ -119,7 +124,7 @@ const A1 = insert({
   body: "問いが多すぎると朝に開くのが億劫になる。",
   parent_id: A, created_at: daysAgo(18), updated_at: daysAgo(3),
 });
-const A1c = insert({
+insert({
   body: "朝の問いを5問までに絞ると、ちょうど心地よかった。これを基本にする。",
   parent_id: A1, is_conclusion: 1, is_closed: 1,
   created_at: daysAgo(16), updated_at: daysAgo(16),
@@ -187,13 +192,21 @@ insert({
 // 今日の約束(いま線)
 insert({ body: "請求書を送る", status: "promise", promise_date: todayDate, estimate_minutes: 30, created_at: daysAgo(1) });
 insert({ body: "ジムに行く", status: "promise", promise_date: todayDate, estimate_minutes: 60, created_at: daysAgo(1) });
+// 済み(実績/見積が見えるよう時間差をつける。1つは見積内、1つは超過=赤)
 insert({
-  body: "朝の買い物", status: "done", promise_date: todayDate, estimate_minutes: 20,
-  started_at: daysAgo(0), ended_at: daysAgo(0), created_at: daysAgo(1),
+  body: "朝の移行判断", status: "done", promise_date: todayDate, estimate_minutes: 30,
+  started_at: minsAgo(480), ended_at: minsAgo(451), created_at: minsAgo(500), // 実績29分
+});
+insert({
+  body: "手順書の改訂", status: "done", promise_date: todayDate, estimate_minutes: 60,
+  started_at: minsAgo(260), ended_at: minsAgo(180), created_at: minsAgo(300), // 実績80分(+20)
 });
 
-// 持ち越し(昨日やらなかった → 朝の持ち越し判断)
-insert({ body: "歯医者の予約を取る", status: "promise", promise_date: dateOnly(1), estimate_minutes: 10, created_at: daysAgo(2) });
+// 持ち越し(昨日やらなかった → いま線に溜まる)
+insert({ body: "読書メモの続き(第3章)", status: "promise", promise_date: dateOnly(1), estimate_minutes: 25, created_at: daysAgo(2) });
+
+// 明日の約束
+insert({ body: "歯医者", status: "promise", promise_date: dateOnly(-1), estimate_minutes: 30, created_at: daysAgo(1) });
 
 // いつやる?(日付未検出 → いつやる?が出る)
 insert({ body: "確定申告の準備を始める", status: "promise", date_undetermined: 1, created_at: daysAgo(1) });
