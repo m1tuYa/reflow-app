@@ -50,7 +50,11 @@ export type Question =
   | { type: "recall"; post: PostDTO }
   | { type: "someday"; post: PostDTO };
 
-export type QuestionContext = { rootId: number; focusId: number } | null;
+export type QuestionContext = {
+  rootId: number;
+  focusId: number;
+  highlightId?: number;
+} | null;
 
 export type CurrentQuestionResponse = {
   question: Question | null;
@@ -70,6 +74,8 @@ export type ForestEntryDTO = {
   nodeCount: number;
   stalled: boolean;
   lastActivity: string;
+  tip: string;
+  hit?: string;
 };
 
 export type TimelineItemDTO = {

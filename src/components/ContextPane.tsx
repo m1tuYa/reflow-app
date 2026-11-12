@@ -1,16 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import { ForestEntryDTO, QuestionContext, TreeNodeDTO } from "@/lib/types";
 import { LinkedText } from "./LinkedText";
 
 export function ContextPane({
   reloadKey,
   context,
+  contextLabel = "この問いに答えるための文脈",
+  headerExtra,
+  onLeave,
   onChanged,
 }: {
   reloadKey: number;
   context: QuestionContext;
+  contextLabel?: string;
+  // 文脈の見出しの横に置く操作(例: つなぎ直す)
+  headerExtra?: ReactNode;
+  // 「森」で文脈を離れるとき、呼び出し側で状態を戻す(例: 選択を外す)
+  onLeave?: () => void;
   onChanged: () => void;
 }) {
   const [forest, setForest] = useState<ForestEntryDTO[]>([]);
@@ -30,27 +38,32 @@ export function ContextPane({
 
   // 問いの文脈が来たら、その木を自動で開く(ユーザーが「森へ」で外せる)。
   // state を同期せず、描画時に導出する。
-  const sig = context ? `${context.rootId}:${context.focusId}` : null;
+  const sig = context ? `${context.rootId}:${context.focusId}:${context.highlightId ?? ""}` : null;
   const autoContext = context != null && dismissedSig !== sig;
   const effectiveRoot = autoContext && context ? context.rootId : openRoot;
   const effectiveFocus =
     autoContext && context ? context.focusId : (userFocus ?? openRoot ?? 0);
+  const highlightId = autoContext && context ? context.highlightId : undefined;
 
   if (effectiveRoot != null) {
     return (
       <>
         {autoContext && (
-          <p className="mb-2 text-xs text-blue-700 dark:text-blue-400">
-            この問いに答えるための文脈
-          </p>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs text-blue-700 dark:text-blue-400">{contextLabel}</p>
+            {headerExtra}
+          </div>
         )}
         <TreeView
           key={`${effectiveRoot}:${autoContext ? sig : "user"}`}
           rootId={effectiveRoot}
           initialFocusId={effectiveFocus}
+          highlightId={highlightId}
           reloadKey={reloadKey}
           onBack={() => {
-            if (autoContext && sig) {
+            if (autoContext && onLeave) {
+              onLeave();
+            } else if (autoContext && sig) {
               setDismissedSig(sig);
             } else {
               setOpenRoot(null);
@@ -106,12 +119,14 @@ export function ContextPane({
 function TreeView({
   rootId,
   initialFocusId,
+  highlightId,
   reloadKey,
   onBack,
   onChanged,
 }: {
   rootId: number;
   initialFocusId: number;
+  highlightId?: number;
   reloadKey: number;
   onBack: () => void;
   onChanged: () => void;
@@ -216,7 +231,11 @@ function TreeView({
         </button>
       )}
       <div
-        className="mb-3 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        className={`mb-3 rounded-lg border bg-neutral-50 px-3 py-2 text-sm dark:bg-neutral-900 ${
+          highlightId === focus.post.id
+            ? "border-blue-500 ring-1 ring-blue-500 dark:border-blue-500"
+            : "border-neutral-300 dark:border-neutral-700"
+        }`}
         onDragOver={(e) => dragId != null && e.preventDefault()}
         onDrop={() => dragId != null && dragId !== focus.post.id && reparent(dragId, focus.post.id)}
       >
@@ -245,9 +264,11 @@ function TreeView({
                     e.stopPropagation();
                     if (dragId != null && dragId !== child.post.id) reparent(dragId, child.post.id);
                   }}
-                  className={`flex-1 cursor-grab rounded-lg border px-3 py-2 text-sm dark:border-neutral-700 ${nodeTone(
-                    child
-                  )}`}
+                  className={`flex-1 cursor-grab rounded-lg border px-3 py-2 text-sm dark:border-neutral-700 ${
+                    highlightId === child.post.id
+                      ? "border-blue-500 ring-1 ring-blue-500 dark:border-blue-500"
+                      : nodeTone(child)
+                  }`}
                   onClick={() => child.children.length > 0 && setFocusId(child.post.id)}
                 >
                   <div className="mb-0.5 flex items-center gap-2 text-xs text-neutral-400">

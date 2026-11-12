@@ -486,13 +486,19 @@ function childrenOf(all: Post[], id: number): Post[] {
   return all.filter((p) => p.parent_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
-// 森の根: 親のない「考え」(record/done)。親なしの約束(頼まれ仕事・ルーチン)は木に入らない。
+// 森の根: 親のない「考え」。親なしの約束(頼まれ仕事・ルーチン)は、終えても木に入らない。
+// ただし済みの約束に考えがつながっていれば、それは木の根として扱う。
+const TREE_ROOT_SQL = `parent_id IS NULL AND (status = 'record'
+  OR (status = 'done' AND EXISTS (SELECT 1 FROM posts c WHERE c.parent_id = posts.id AND c.status != 'released')))`;
+
 export function forestRoots(): Post[] {
   return getDb()
-    .prepare(
-      "SELECT * FROM posts WHERE parent_id IS NULL AND status IN ('record','done') ORDER BY updated_at DESC"
-    )
+    .prepare(`SELECT * FROM posts WHERE ${TREE_ROOT_SQL} ORDER BY updated_at DESC`)
     .all() as Post[];
+}
+
+function isTreeRoot(id: number): boolean {
+  return !!getDb().prepare(`SELECT 1 FROM posts WHERE id = ? AND ${TREE_ROOT_SQL}`).get(id);
 }
 
 function subtreeIds(all: Post[], rootId: number): number[] {
@@ -551,6 +557,44 @@ function buildNode(all: Post[], id: number): TreeNode {
   return { post, children, descendantCount };
 }
 
+// 選んだカードを、その木の中で見せるための文脈(根・見出し・ハイライト)
+export function contextForPost(id: number): {
+  rootId: number;
+  focusId: number;
+  highlightId: number;
+} | null {
+  const post = getPost(id);
+  if (!post) return null;
+  const root = rootOf(id);
+  const rootPost = getPost(root);
+  // 木につながっていない約束(頼まれ仕事・ルーチン・いつか)は "なぜ" がない
+  if (!rootPost || !isTreeRoot(root)) {
+    return null;
+  }
+  return {
+    rootId: root,
+    focusId: post.parent_id ?? root,
+    highlightId: id,
+  };
+}
+
+// 記録 ↔ 約束 の後からの変換。約束化したら「いつやる?」で日付を問う。
+export function convertPost(id: number, to: "promise" | "record"): Post | undefined {
+  const db = getDb();
+  const post = getPost(id);
+  if (!post) return;
+  if (to === "promise") {
+    db.prepare(
+      "UPDATE posts SET status='promise', date_undetermined=1, next_recall_at=NULL, updated_at=? WHERE id=?"
+    ).run(nowIso(), id);
+  } else {
+    db.prepare(
+      "UPDATE posts SET status='record', promise_date=NULL, date_undetermined=0, someday_next_ask=NULL, updated_at=? WHERE id=?"
+    ).run(nowIso(), id);
+  }
+  return getPost(id);
+}
+
 // 投稿が属する木の根をたどる
 export function rootOf(id: number): number {
   const db = getDb();
@@ -579,13 +623,17 @@ export type ForestEntry = {
   nodeCount: number; // 根を含む総数
   stalled: boolean; // 止まっている木
   lastActivity: string;
+  tip: string; // 最新の先端の冒頭
+  hit?: string; // 検索で当たった投稿の冒頭
 };
 
 export function listForest(): ForestEntry[] {
   const all = allLiving();
-  const roots = all
-    .filter((p) => p.parent_id === null && (p.status === "record" || p.status === "done"))
-    .filter((p) => p.is_conclusion === 0 || true);
+  const roots = all.filter(
+    (p) =>
+      p.parent_id === null &&
+      (p.status === "record" || (p.status === "done" && all.some((c) => c.parent_id === p.id)))
+  );
   const staleBefore = new Date();
   staleBefore.setDate(staleBefore.getDate() - STALL_DAYS);
   const staleIso = staleBefore.toISOString();
@@ -597,15 +645,35 @@ export function listForest(): ForestEntry[] {
       (m, p) => (p.updated_at > m ? p.updated_at : m),
       root.updated_at
     );
+    const tip = latestTip(all, root.id);
     return {
       root,
       name: root.tree_name || firstLine(root.body),
       nodeCount: ids.length,
       stalled: lastActivity < staleIso,
       lastActivity,
+      tip: tip && tip.id !== root.id ? firstLine(tip.body) : "",
     };
   });
   return entries.sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
+}
+
+// 木を名前や中身で探す(つなぐ先選び用)。最近触った順のまま絞り込む。
+export function searchForest(query: string): ForestEntry[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return listForest();
+  const all = allLiving();
+  const out: ForestEntry[] = [];
+  for (const e of listForest()) {
+    if (e.name.toLowerCase().includes(q)) {
+      out.push(e);
+      continue;
+    }
+    const ids = new Set(subtreeIds(all, e.root.id));
+    const hit = all.find((p) => ids.has(p.id) && p.body.toLowerCase().includes(q));
+    if (hit) out.push({ ...e, hit: firstLine(hit.body) });
+  }
+  return out;
 }
 
 function firstLine(body: string): string {
@@ -622,8 +690,10 @@ export function reparent(id: number, newParentId: number | null): Post | undefin
     if (subtreeIds(all, id).includes(newParentId)) return getPost(id);
   }
   getDb()
-    .prepare("UPDATE posts SET parent_id = ?, updated_at = ? WHERE id = ?")
-    .run(newParentId, nowIso(), id);
+    .prepare(
+      "UPDATE posts SET parent_id = ?, needs_continuation = CASE WHEN ? IS NULL THEN needs_continuation ELSE 0 END, updated_at = ? WHERE id = ?"
+    )
+    .run(newParentId, newParentId, nowIso(), id);
   if (newParentId != null) touchAncestors(newParentId);
   return getPost(id);
 }

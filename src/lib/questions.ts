@@ -111,20 +111,24 @@ export function buildQueue(): Question[] {
   return queue;
 }
 
-export type QuestionContext = { rootId: number; focusId: number } | null;
+export type QuestionContext = { rootId: number; focusId: number; highlightId?: number } | null;
 
 // その問いに答えるために右へ出す文脈(木とその注目ノード)
 function contextFor(q: Question): QuestionContext {
   switch (q.type) {
     case "continuation":
-      return { rootId: q.candidate.id, focusId: q.candidate.id };
+      return { rootId: q.candidate.id, focusId: q.candidate.id, highlightId: q.candidate.id };
     case "recall":
     case "stalled":
     case "verify": {
       const root = rootOf(q.post.id);
       // 根が投稿自身でなければ、その投稿の親を見出しにして周辺を見せる
       const parent = q.post.parent_id ?? q.post.id;
-      return { rootId: root, focusId: root === q.post.id ? q.post.id : parent };
+      return {
+        rootId: root,
+        focusId: root === q.post.id ? q.post.id : parent,
+        highlightId: q.post.id,
+      };
     }
     default:
       return null; // when/carryover/morningOrder/someday は森のまま
