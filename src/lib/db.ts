@@ -63,6 +63,19 @@ function createDb(): Database.Database {
       created_at TEXT NOT NULL
     );
 
+    -- 問いを出した/答えた/あとでにした記録(測り方のため。画面には出さない)
+    CREATE TABLE IF NOT EXISTS question_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      type TEXT NOT NULL,
+      post_id INTEGER NOT NULL DEFAULT 0,
+      event TEXT NOT NULL CHECK(event IN ('shown','answered','later')),
+      detail TEXT,
+      at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS question_log_once
+      ON question_log(date, type, post_id, event);
+
     CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
       body, content='posts', content_rowid='id', tokenize='trigram'
     );

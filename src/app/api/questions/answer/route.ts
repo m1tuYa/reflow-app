@@ -12,6 +12,7 @@ import {
   snooze,
 } from "@/lib/posts";
 import {
+  logQuestion,
   markCarryoverShown,
   markCloseShown,
   markOrderConfirmed,
@@ -24,13 +25,29 @@ function todayIso(): string {
 
 export async function POST(req: NextRequest) {
   const payload = await req.json();
-  const { type } = payload;
 
   if (payload.action === "later" && typeof payload.id === "number") {
     snooze(payload.id, 4);
+    if (typeof payload.type === "string") logQuestion(payload.type, payload.id, "later");
     return NextResponse.json({ ok: true });
   }
 
+  const res = handle(payload);
+  if (res.ok) {
+    const detail = payload.decision ?? payload.action ?? null;
+    logQuestion(
+      payload.type,
+      typeof payload.id === "number" ? payload.id : 0,
+      "answered",
+      typeof detail === "string" ? detail : null
+    );
+  }
+  return res;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function handle(payload: any): NextResponse {
+  const { type } = payload;
   switch (type) {
     case "continuation": {
       const { id, decision } = payload; // yes | no | new

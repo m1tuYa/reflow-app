@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Question } from "@/lib/types";
+import { useCardActions } from "./CardActions";
 
 async function answer(payload: Record<string, unknown>) {
   await fetch("/api/questions/answer", {
@@ -20,6 +21,7 @@ export function QuestionCard({
   remaining: number;
   onAnswered: () => void;
 }) {
+  const { requestConnect } = useCardActions();
   const [dateInput, setDateInput] = useState("");
   const [writeInput, setWriteInput] = useState("");
   const [showDate, setShowDate] = useState(false);
@@ -42,7 +44,7 @@ export function QuestionCard({
   }
 
   async function later(id: number) {
-    await answer({ action: "later", id });
+    await answer({ action: "later", id, type: question.type });
     onAnswered();
   }
 
@@ -209,6 +211,10 @@ export function QuestionCard({
               >
                 流す
               </Btn>
+              {/* つながらない投稿が戻ってきたときは、木につなぐ機会にする */}
+              {question.post.parent_id == null && (
+                <Btn onClick={() => requestConnect(question.post.id)}>木につなぐ</Btn>
+              )}
             </div>
           )}
         </>

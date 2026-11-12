@@ -11,7 +11,7 @@ import {
   snooze,
 } from "./posts";
 
-const MORNING_CARRYOVER_CAP = 5;
+const MORNING_CAP = 5; // 朝の問い(持ち越し+順番確認)の上限
 const DAYTIME_RECALL_CAP = 3;
 const CLOSE_CAP = 1; // 閉じる問い(どうなった?)の上限 1日1件
 
@@ -69,9 +69,11 @@ export function buildQueue(): Question[] {
   ).filter((p) => !isSnoozed(p));
   for (const p of undetermined) queue.push({ type: "when", post: p });
 
-  // 朝: 持ち越し判断
+  // 朝: 持ち越し判断(順番確認の1問ぶんを残して、朝の問いを合計5問までにする)
   const overdue = listOverduePromises(date).filter((p) => !isSnoozed(p));
-  const carryoverRoom = Math.max(0, MORNING_CARRYOVER_CAP - state.carryover_shown);
+  const todaysCount = listTodayPromises(date).length;
+  const orderPending = !state.order_confirmed_at && todaysCount > 0 ? 1 : 0;
+  const carryoverRoom = Math.max(0, MORNING_CAP - orderPending - state.carryover_shown);
   const shownOverdue = overdue.slice(0, carryoverRoom);
   for (const p of shownOverdue) queue.push({ type: "carryover", post: p });
 
@@ -81,10 +83,9 @@ export function buildQueue(): Question[] {
     queue.push({ type: "morningOrder", posts: todays });
   }
 
-  // 確かめる日: 効いた?
-  for (const p of listDueVerifications().filter((p) => !isSnoozed(p))) {
-    queue.push({ type: "verify", post: p });
-  }
+  // 確かめる日: 効いた?(溜めずに1つずつ。答えると次が出る)
+  const verify = listDueVerifications().filter((p) => !isSnoozed(p))[0];
+  if (verify) queue.push({ type: "verify", post: verify });
 
   // 止まった枝: どうなった?(1日1件)
   if (state.close_shown < CLOSE_CAP) {
@@ -103,10 +104,9 @@ export function buildQueue(): Question[] {
   const recallRoom = Math.max(0, DAYTIME_RECALL_CAP - state.recall_shown);
   for (const p of dueRecall.slice(0, recallRoom)) queue.push({ type: "recall", post: p });
 
-  // いつか: まだやりたい?(最もおだやかなので最後)
-  for (const p of listDueSomeday().filter((p) => !isSnoozed(p))) {
-    queue.push({ type: "someday", post: p });
-  }
+  // いつか: まだやりたい?(最もおだやかなので最後。溜めずに1つずつ)
+  const someday = listDueSomeday().filter((p) => !isSnoozed(p))[0];
+  if (someday) queue.push({ type: "someday", post: someday });
 
   return queue;
 }
@@ -142,6 +142,7 @@ export function getCurrentQuestion(): {
 } {
   const queue = buildQueue();
   const question = queue[0] ?? null;
+  if (question) logQuestion(question.type, questionPostId(question), "shown");
   return {
     question,
     remaining: Math.max(0, queue.length - 1),
@@ -184,4 +185,24 @@ export function markCloseShown(): void {
 export function snoozeQuestion(question: Question): void {
   if (question.type === "morningOrder") return;
   snooze(question.post.id, 4);
+}
+
+// ---- 問いの記録(測り方のため。画面には出さず、書き出しから数える) ----
+
+export function questionPostId(q: Question): number {
+  return q.type === "morningOrder" ? 0 : q.post.id;
+}
+
+// 同じ日・同じ問い・同じ出来事は1回だけ数える
+export function logQuestion(
+  type: string,
+  postId: number,
+  event: "shown" | "answered" | "later",
+  detail?: string | null
+): void {
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO question_log (date, type, post_id, event, detail, at) VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(todayIso(), type, postId, event, detail ?? null, new Date().toISOString());
 }

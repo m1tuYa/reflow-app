@@ -62,7 +62,12 @@ export function ManagePanel({ onChanged }: { onChanged: () => void }) {
     });
     const j = await res.json();
     if (res.ok) {
-      setImportMsg(`${j.imported}件を復元しました`);
+      const c = j.counts ?? {};
+      setImportMsg(
+        `投稿${c.posts ?? j.imported}件` +
+          (c.routines != null ? `・ルーチン${c.routines}件` : "") +
+          "を復元しました"
+      );
       onChanged();
     } else {
       setImportMsg(j.error ?? "復元に失敗しました");

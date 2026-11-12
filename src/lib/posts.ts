@@ -257,25 +257,27 @@ export function allPosts(): Post[] {
 
 // 書き出したJSONから全投稿を復元する(既存は全消去して置き換える)。#48の対
 export function importPosts(posts: Partial<Post>[]): number {
+  replaceTable("posts", posts as Record<string, unknown>[]);
+  return posts.length;
+}
+
+// 表を丸ごと置き換える。渡された列のうち、表に実在する列だけ入れる(足りない列は既定値)。
+export function replaceTable(table: string, rows: Record<string, unknown>[]): void {
   const db = getDb();
-  const columns = (db.prepare("PRAGMA table_info(posts)").all() as { name: string }[])
-    .map((c) => c.name)
-    .filter((n) => n !== "id");
-  const insert = db.prepare(
-    `INSERT INTO posts (id, ${columns.join(",")}) VALUES (@id, ${columns
-      .map((c) => "@" + c)
-      .join(",")})`
+  const columns = new Set(
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
   );
-  const tx = db.transaction((rows: Partial<Post>[]) => {
-    db.exec("DELETE FROM posts");
+  const tx = db.transaction(() => {
+    db.exec(`DELETE FROM ${table}`);
     for (const row of rows) {
-      const rec: Record<string, unknown> = { id: row.id ?? null };
-      for (const c of columns) rec[c] = (row as Record<string, unknown>)[c] ?? null;
-      insert.run(rec);
+      const keys = Object.keys(row).filter((k) => columns.has(k) && row[k] !== undefined);
+      if (keys.length === 0) continue;
+      db.prepare(
+        `INSERT INTO ${table} (${keys.join(",")}) VALUES (${keys.map((k) => "@" + k).join(",")})`
+      ).run(Object.fromEntries(keys.map((k) => [k, row[k]])));
     }
   });
-  tx(posts);
-  return posts.length;
+  tx();
 }
 
 // ---- ルーチン (段階4 #27) ----
