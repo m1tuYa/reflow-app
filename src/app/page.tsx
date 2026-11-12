@@ -12,6 +12,7 @@ import { ManagePanel } from "@/components/ManagePanel";
 import { PostCard } from "@/components/PostCard";
 import { TreePicker, AttachTarget } from "@/components/TreePicker";
 import { TodaySchedule } from "@/components/TodaySchedule";
+import { VerifySummary } from "@/components/VerifySummary";
 import { CardActionsContext } from "@/components/CardActions";
 import {
   CurrentQuestionResponse,
@@ -268,6 +269,18 @@ export default function Home() {
           posts={timeline.todayUpcoming}
           overdue={timeline.overdue}
         />
+      );
+    }
+    if (question.question?.type === "verify" && question.context) {
+      return (
+        <>
+          <VerifySummary
+            rootId={question.context.rootId}
+            decisionId={question.question.post.id}
+            reloadKey={reloadKey}
+          />
+          <ContextPane reloadKey={reloadKey} context={question.context} onChanged={load} />
+        </>
       );
     }
     return <ContextPane reloadKey={reloadKey} context={question.context} onChanged={load} />;

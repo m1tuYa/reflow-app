@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { PostDTO } from "@/lib/types";
 import { AttachTarget } from "./TreePicker";
+import { DRAFT_MIME } from "@/lib/dnd";
 
 // 常にある入力欄。つなぐ先は書き始めると右に出る一覧から選ぶ(任意)。
 export function CaptureInput({
@@ -60,6 +61,18 @@ export function CaptureInput({
       />
       {writing && (
         <div className="mt-2 flex items-center gap-2 text-xs">
+          <span
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData(DRAFT_MIME, body);
+              e.dataTransfer.setData("text/plain", body);
+              e.dataTransfer.effectAllowed = "link";
+            }}
+            title="右の木やカードへドラッグしてつなぐ先を決める"
+            className="shrink-0 cursor-grab select-none rounded border border-dashed border-neutral-400 px-1.5 py-0.5 text-neutral-500 active:cursor-grabbing"
+          >
+            ⠿ 右へドラッグ
+          </span>
           {attach ? (
             <span className="flex min-w-0 items-center gap-1 rounded border border-blue-500 bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
               <span className="truncate">→ {attach.label}</span>
@@ -73,7 +86,7 @@ export function CaptureInput({
             </span>
           ) : (
             <span className="text-neutral-500">
-              つなぐ木は右で選べます(選ばなければ書いた後に聞きます)
+              つなぐ木は右で選ぶか、ここから右へドラッグ(選ばなければ書いた後に聞きます)
             </span>
           )}
         </div>

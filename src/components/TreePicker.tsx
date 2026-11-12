@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ForestEntryDTO, TreeNodeDTO } from "@/lib/types";
+import { draftDropHandlers } from "@/lib/dnd";
 
 export type AttachTarget = { rootId: number; parentId: number; label: string };
 
@@ -33,6 +34,7 @@ export function TreePicker({
   const [query, setQuery] = useState("");
   const [forest, setForest] = useState<ForestEntryDTO[]>([]);
   const [openRoot, setOpenRoot] = useState<number | null>(selected?.rootId ?? null);
+  const [hover, setHover] = useState<string | null>(null);
 
   useEffect(() => {
     const handle = setTimeout(
@@ -98,6 +100,8 @@ export function TreePicker({
                 key={e.root.id}
                 entry={e}
                 active={selected?.rootId === e.root.id}
+                dropHover={hover === `t${e.root.id}`}
+                dropProps={draftDropHandlers(`t${e.root.id}`, setHover, () => chooseDefault(e, true))}
                 onChoose={() => chooseDefault(e)}
                 onOpen={() => setOpenRoot(e.root.id)}
               />
@@ -116,6 +120,8 @@ export function TreePicker({
                 entry={e}
                 compact
                 active={selected?.rootId === e.root.id}
+                dropHover={hover === `t${e.root.id}`}
+                dropProps={draftDropHandlers(`t${e.root.id}`, setHover, () => chooseDefault(e, true))}
                 onChoose={() => chooseDefault(e)}
                 onOpen={() => setOpenRoot(e.root.id)}
               />
@@ -141,8 +147,8 @@ export function TreePicker({
   );
 
   // 木を押す: 書くときは既定位置で即決。つなぎ直しは開いて位置を確かめてから。
-  async function chooseDefault(e: ForestEntryDTO) {
-    if (confirmLabel) {
+  async function chooseDefault(e: ForestEntryDTO, dropped = false) {
+    if (confirmLabel && !dropped) {
       setOpenRoot(e.root.id);
       return;
     }
@@ -158,19 +164,26 @@ function TreeRow({
   entry,
   active,
   compact,
+  dropHover,
+  dropProps,
   onChoose,
   onOpen,
 }: {
   entry: ForestEntryDTO;
   active: boolean;
   compact?: boolean;
+  dropHover: boolean;
+  dropProps: ReturnType<typeof draftDropHandlers>;
   onChoose: () => void;
   onOpen: () => void;
 }) {
   return (
     <li
+      {...dropProps}
       className={`flex items-stretch rounded border text-sm ${
-        active
+        dropHover
+          ? "border-blue-500 bg-blue-100 ring-2 ring-blue-400 dark:bg-blue-900/40"
+          : active
           ? "border-blue-500 ring-1 ring-blue-500"
           : entry.stalled
             ? "border-neutral-200 text-neutral-400 dark:border-neutral-800"
@@ -225,6 +238,7 @@ function PickerTree({
 }) {
   const [tree, setTree] = useState<TreeNodeDTO | null>(null);
   const [focusId, setFocusId] = useState<number | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetch(`/api/tree/${rootId}`)
@@ -292,10 +306,19 @@ function PickerTree({
         heading
         selected={isSel(focus.post.id)}
         disabled={excluded.has(focus.post.id)}
+        dropHover={hover === `n${focus.post.id}`}
+        dropProps={draftDropHandlers(`n${focus.post.id}`, setHover, () => onPick(target(focus)))}
         onHere={() => onPick(target(focus))}
       />
 
-      <ul className="ml-4 mt-1.5 flex flex-col gap-1.5 border-l border-neutral-200 pl-3 dark:border-neutral-800">
+      <ul
+        {...draftDropHandlers(`g${focus.post.id}`, setHover, () => onPick(target(focus)))}
+        className={`ml-4 mt-1.5 flex flex-col gap-1.5 border-l pl-3 py-1 ${
+          hover === `g${focus.post.id}`
+            ? "border-l-2 border-blue-500 bg-blue-50/60 dark:bg-blue-950/30"
+            : "border-neutral-200 dark:border-neutral-800"
+        }`}
+      >
         {focus.children.length === 0 && (
           <li className="text-xs text-neutral-400">この下はまだありません</li>
         )}
@@ -305,13 +328,15 @@ function PickerTree({
             node={c}
             selected={isSel(c.post.id)}
             disabled={excluded.has(c.post.id)}
+            dropHover={hover === `n${c.post.id}`}
+            dropProps={draftDropHandlers(`n${c.post.id}`, setHover, () => onPick(target(c)))}
             onHere={() => onPick(target(c))}
             onDescend={c.children.length > 0 ? () => setFocusId(c.post.id) : undefined}
           />
         ))}
       </ul>
       <p className="mt-3 text-xs text-neutral-400">
-        「この下に」を押すと、そのカードの子(深める)としてつなぎます。
+        「この下に」を押すか、カードの上に落とすと子(深める)。カードの間に落とすと弟(続ける)。
       </p>
     </div>
   );
@@ -322,6 +347,8 @@ function NodeRow({
   heading,
   selected,
   disabled,
+  dropHover,
+  dropProps,
   onHere,
   onDescend,
 }: {
@@ -329,13 +356,18 @@ function NodeRow({
   heading?: boolean;
   selected: boolean;
   disabled: boolean;
+  dropHover: boolean;
+  dropProps: ReturnType<typeof draftDropHandlers>;
   onHere: () => void;
   onDescend?: () => void;
 }) {
   return (
     <li
+      {...(disabled ? {} : dropProps)}
       className={`flex list-none items-start gap-2 rounded border px-2 py-1.5 text-sm ${
-        selected
+        dropHover
+          ? "border-blue-500 bg-blue-100 ring-2 ring-blue-400 dark:bg-blue-900/40"
+          : selected
           ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500 dark:bg-blue-950/40"
           : heading
             ? "border-neutral-300 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900"
